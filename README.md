@@ -7,6 +7,7 @@ Rust bindings for XGBoost, a gradient boosting library for machine learning.
 - **Automatic Binary Download**: Downloads XGBoost binaries at build time from PyPI wheels
 - **Cross-Platform**: Supports Linux (x86_64, aarch64), macOS (x86_64, arm64), and Windows (x86_64)
 - **Version Control**: Specify XGBoost version via `XGBOOST_VERSION` environment variable
+- **Version-Aware Thread Safety**: Automatically enables `Send + Sync` for XGBoost ≥ 1.4
 - **Easy to Use**: Simple, safe Rust API wrapping the XGBoost C API
 
 ## Installation
@@ -85,10 +86,28 @@ This crate downloads the appropriate XGBoost Python wheel from PyPI during the b
 
 ## Thread Safety
 
-The `Booster` type is **not thread-safe**. For multi-threaded usage:
+Thread safety is **version-aware**:
 
-1. **Recommended**: Create one `Booster` per thread
-2. **Alternative**: Wrap in `Arc<Mutex<Booster>>` for shared access
+- **XGBoost ≥ 1.4**: `Booster` implements `Send + Sync` and is thread-safe for predictions on tree models. You can safely share `Arc<Booster>` across threads.
+- **XGBoost < 1.4**: `Booster` does NOT implement `Send + Sync`. Use one booster per thread or wrap in `Arc<Mutex<Booster>>`.
+
+### Example with XGBoost ≥ 1.4
+
+```rust
+use std::sync::Arc;
+use std::thread;
+use xgboost_rust::Booster;
+
+let booster = Arc::new(Booster::load("model.json")?);
+let booster_clone = booster.clone();
+
+thread::spawn(move || {
+    // Safe concurrent predictions with XGBoost ≥ 1.4
+    let predictions = booster_clone.predict(&data, rows, cols, 0, false)?;
+});
+```
+
+The version check happens automatically at build time based on the `XGBOOST_VERSION` environment variable.
 
 ## Examples
 
