@@ -10,13 +10,30 @@ use std::ptr;
 ///
 /// **Thread safety depends on XGBoost version:**
 /// - **XGBoost ≥ 1.4**: Predictions are thread-safe for tree models (gbtree/dart).
-///   However, prediction cache may still have edge cases.
-/// - **XGBoost < 1.4**: NOT thread-safe for concurrent predictions.
+///   `Send` and `Sync` are automatically implemented for these versions.
+///   You can safely share `Arc<Booster>` across threads.
+/// - **XGBoost < 1.4**: NOT thread-safe. `Send` and `Sync` are NOT implemented.
 ///
-/// This wrapper does NOT implement `Send` or `Sync` to be conservative.
-/// For multi-threaded use cases, use one of these approaches:
+/// ## Usage with XGBoost ≥ 1.4
 ///
-/// 1. **Create one Booster per thread** (recommended, works with all versions):
+/// ```ignore
+/// use std::sync::Arc;
+/// use std::thread;
+///
+/// let booster = Arc::new(Booster::load("model.json")?);
+/// let booster_clone = booster.clone();
+///
+/// thread::spawn(move || {
+///     // Safe to call predict concurrently
+///     booster_clone.predict(...);
+/// });
+/// ```
+///
+/// ## Usage with XGBoost < 1.4
+///
+/// For older versions, use one of these approaches:
+///
+/// 1. **Create one Booster per thread** (recommended):
 ///    ```ignore
 ///    let booster = Booster::load("model.json")?;
 ///    thread::spawn(move || {
@@ -24,26 +41,26 @@ use std::ptr;
 ///    });
 ///    ```
 ///
-/// 2. **Wrap in Arc<Mutex<Booster>>** for shared access:
+/// 2. **Wrap in Arc<Mutex<Booster>>**:
 ///    ```ignore
 ///    use std::sync::{Arc, Mutex};
 ///    let booster = Arc::new(Mutex::new(Booster::load("model.json")?));
-///    let booster_clone = booster.clone();
-///    thread::spawn(move || {
-///        let booster = booster_clone.lock().unwrap();
-///        booster.predict(...);
-///    });
 ///    ```
 pub struct Booster {
     handle: sys::BoosterHandle,
 }
 
-// NOTE: We do NOT implement Send or Sync for Booster because:
-// 1. Thread safety guarantees vary by XGBoost version (≥1.4 is safer)
-// 2. C API documentation doesn't explicitly guarantee thread safety
-// 3. Users should explicitly choose synchronization strategy (one-per-thread or Mutex)
-//
-// If you need to share a Booster across threads, wrap it in Arc<Mutex<Booster>>.
+// Thread safety implementation based on XGBoost version
+// XGBoost 1.4.0+ supports thread-safe predictions for tree models (gbtree/dart)
+// See: https://github.com/dmlc/xgboost/issues/5339
+#[cfg(xgboost_thread_safe)]
+unsafe impl Send for Booster {}
+
+#[cfg(xgboost_thread_safe)]
+unsafe impl Sync for Booster {}
+
+// For XGBoost < 1.4, Send and Sync are NOT implemented.
+// Users should wrap in Arc<Mutex<Booster>> or use one Booster per thread.
 
 impl Booster {
     /// Load a model from a file
