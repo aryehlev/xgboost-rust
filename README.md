@@ -5,7 +5,7 @@ Rust bindings for XGBoost, a gradient boosting library for machine learning.
 ## Features
 
 - **Automatic Binary Download**: Downloads XGBoost binaries at build time from PyPI wheels
-- **Cross-Platform**: Supports Linux (x86_64, aarch64), macOS (x86_64, arm64), and Windows (x86_64)
+- **Cross-Platform**: Supports Linux (x86_64, aarch64) and macOS (x86_64, arm64)
 - **Version Control**: Specify XGBoost version via `XGBOOST_VERSION` environment variable
 - **Version-Aware Thread Safety**: Automatically enables `Send + Sync` for XGBoost ≥ 1.4
 - **Easy to Use**: Simple, safe Rust API wrapping the XGBoost C API
@@ -32,6 +32,11 @@ xgboost-rust = "0.1.0"
 
 **Linux**:
 - Optional: `patchelf` (for setting SONAME, but not required)
+
+**Windows**:
+- ⚠️ **Not currently supported via automatic download**
+- Python wheels don't include import libraries (`.lib`) needed for MSVC linking
+- Alternative: Build XGBoost from source or use WSL/MinGW
 
 ## Usage
 
