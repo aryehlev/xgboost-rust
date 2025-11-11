@@ -35,7 +35,7 @@ jobs:
           # macOS x86_64 (Intel)
           - os: macos
             arch: x86_64
-            runner: macos-15-large
+            runner: macos-15-intel
             xgboost_version: "3.1.1"
 
           # Linux x86_64 - Test multiple versions including thread-safety boundary
