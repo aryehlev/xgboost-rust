@@ -62,7 +62,11 @@ fn main() -> XGBoostResult<()> {
 
     // Example: Load from buffer (useful for embedded models)
     println!("=== Example 4: Load from Buffer ===");
-    let buffer = std::fs::read(model_path)?;
+    let buffer = std::fs::read(model_path).map_err(|e| {
+        xgboost_rust::XGBoostError {
+            description: format!("Failed to read model file: {}", e),
+        }
+    })?;
     let booster_from_buffer = Booster::load_from_buffer(&buffer)?;
     println!("✓ Model loaded from buffer ({} bytes)", buffer.len());
 
