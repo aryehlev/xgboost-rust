@@ -105,32 +105,60 @@ fn emit_version_cfg_flags(version: &str) {
     }
 }
 
-fn get_platform_info() -> (String, String) {
-    let target = env::var("TARGET").unwrap();
-
-    // Determine OS
-    let os = if target.contains("apple-darwin") {
-        "darwin"
-    } else if target.contains("linux") {
-        "linux"
-    } else if target.contains("windows") {
-        "windows"
-    } else {
-        panic!("Unsupported target: {}", target);
-    };
-
-    // Determine architecture
-    let arch = if target.contains("x86_64") {
+fn get_arch_from_target() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    {
         "x86_64"
-    } else if target.contains("aarch64") || target.contains("arm64") {
-        "aarch64"
-    } else if target.contains("i686") || target.contains("i586") {
-        "i686"
-    } else {
-        panic!("Unsupported architecture for target: {}", target);
-    };
+    }
 
-    (os.to_string(), arch.to_string())
+    #[cfg(target_arch = "aarch64")]
+    {
+        "aarch64"
+    }
+
+    #[cfg(target_arch = "arm")]
+    {
+        "arm"
+    }
+
+    #[cfg(target_arch = "x86")]
+    {
+        "i686"
+    }
+}
+
+fn get_os_name() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "darwin"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+}
+
+fn get_lib_filename() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "xgboost.dll"
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        "libxgboost.dylib"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "libxgboost.so"
+    }
 }
 
 fn download_xgboost_headers(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -250,13 +278,14 @@ fn download_with_retry(url: &str, max_retries: u32) -> Result<Vec<u8>, Box<dyn s
 }
 
 fn download_and_extract_wheel(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let (os, arch) = get_platform_info();
+    let os = get_os_name();
+    let arch = get_arch_from_target();
     let version = get_xgboost_version();
     let (major, minor, _patch) = parse_version(&version);
 
     // Determine wheel filename based on platform and version
     // Different XGBoost versions use different manylinux tags
-    let wheel_filename = match (os.as_str(), arch.as_str()) {
+    let wheel_filename = match (os, arch) {
         ("linux", "x86_64") => {
             // Choose manylinux tag based on version
             let manylinux_tag = if major >= 3 {
@@ -301,11 +330,7 @@ fn download_and_extract_wheel(out_dir: &Path) -> Result<(), Box<dyn std::error::
         _ => return Err(format!("Unsupported platform: {}-{}", os, arch).into()),
     };
 
-    let lib_filename = match os.as_str() {
-        "windows" => "xgboost.dll",
-        "darwin" => "libxgboost.dylib",
-        _ => "libxgboost.so",
-    };
+    let lib_filename = get_lib_filename();
 
     // Setup paths
     let wheel_dir = out_dir.join("wheel");
@@ -464,15 +489,8 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings.");
 
-    // Get platform info
-    let (os, _arch) = get_platform_info();
-
-    // Determine the library filename based on the OS
-    let lib_filename = match os.as_str() {
-        "windows" => "xgboost.dll",
-        "darwin" => "libxgboost.dylib",
-        _ => "libxgboost.so",
-    };
+    // Get the library filename
+    let lib_filename = get_lib_filename();
 
     // Copy the library from OUT_DIR/libs to the final target directory
     let lib_source_path = out_dir.join("libs").join(lib_filename);
@@ -488,7 +506,8 @@ fn main() {
     fs::copy(&lib_source_path, &lib_dest_path).expect("Failed to copy library to target directory");
 
     // On macOS/Linux, change the install name/soname to use @loader_path/$ORIGIN
-    if os == "darwin" {
+    #[cfg(target_os = "macos")]
+    {
         use std::process::Command;
         let _ = Command::new("install_name_tool")
             .arg("-id")
@@ -500,7 +519,10 @@ fn main() {
             .arg(format!("@loader_path/{}", lib_filename))
             .arg(&lib_dest_path)
             .status();
-    } else if os == "linux" {
+    }
+
+    #[cfg(target_os = "linux")]
+    {
         use std::process::Command;
         // Use patchelf to set soname (if available)
         let _ = Command::new("patchelf")
@@ -523,50 +545,50 @@ fn main() {
     );
 
     // Set the rpath for the run-time linker based on the OS
-    match os.as_str() {
-        "darwin" => {
-            // For macOS, add multiple rpath entries for IDE compatibility
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
+    #[cfg(target_os = "macos")]
+    {
+        // For macOS, add multiple rpath entries for IDE compatibility
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
+        println!(
+            "cargo:rustc-link-arg=-Wl,-rpath,{}",
+            lib_search_path.display()
+        );
+        // Add the target directory to rpath as well
+        if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
             println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                lib_search_path.display()
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
+                target_root.display()
             );
-            // Add the target directory to rpath as well
-            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
-                    target_root.display()
-                );
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
-                    target_root.display()
-                );
-            }
-        }
-        "linux" => {
-            // For Linux, use $ORIGIN
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
             println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                lib_search_path.display()
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
+                target_root.display()
             );
-            // Add the target directory to rpath as well
-            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
-                    target_root.display()
-                );
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
-                    target_root.display()
-                );
-            }
         }
-        _ => {} // No rpath needed for Windows
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // For Linux, use $ORIGIN
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
+        println!(
+            "cargo:rustc-link-arg=-Wl,-rpath,{}",
+            lib_search_path.display()
+        );
+        // Add the target directory to rpath as well
+        if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
+                target_root.display()
+            );
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
+                target_root.display()
+            );
+        }
     }
 
     println!("cargo:rustc-link-lib=dylib=xgboost");
