@@ -201,19 +201,18 @@ fn extract_f32_value(series: &Series, idx: usize) -> XGBoostResult<f32> {
             let ca = series.bool().map_err(|e| XGBoostError {
                 description: format!("Failed to cast to bool: {}", e),
             })?;
-            Ok(if ca.get(idx).ok_or_else(|| XGBoostError {
-                description: format!("Null value at index {}", idx),
-            })? {
-                1.0
-            } else {
-                0.0
-            })
+            Ok(
+                if ca.get(idx).ok_or_else(|| XGBoostError {
+                    description: format!("Null value at index {}", idx),
+                })? {
+                    1.0
+                } else {
+                    0.0
+                },
+            )
         }
         dt => Err(XGBoostError {
-            description: format!(
-                "Unsupported data type for conversion to f32: {}",
-                dt
-            ),
+            description: format!("Unsupported data type for conversion to f32: {}", dt),
         }),
     }
 }
