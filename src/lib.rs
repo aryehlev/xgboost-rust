@@ -7,6 +7,11 @@ pub use crate::error::{XGBoostError, XGBoostResult};
 mod model;
 pub use crate::model::Booster;
 
+#[cfg(feature = "polars")]
+mod polars_ext;
+#[cfg(feature = "polars")]
+pub use crate::polars_ext::BoosterPolarsExt;
+
 // Re-export prediction option constants for convenience
 pub mod predict_option {
     /// Normal prediction, output is the transformed probability
